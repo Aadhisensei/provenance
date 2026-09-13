@@ -1,0 +1,184 @@
+// Prisma schema for Provenance: Post-Quantum Verified Asset & Identity Platform
+// Database schema supporting hybrid post-quantum cryptography (Ed25519 + ML-DSA-65 + SLH-DSA-SHA2-128s)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+// ---------------------------------------------------------------------------
+// 1. Identity & Key Management
+// ---------------------------------------------------------------------------
+model Identity {
+  id                 String   @id @default(cuid())
+  did                String   @unique // Decentralized Identifier: did:provenance:<id>
+  displayName        String
+  role               String   @default("HOLDER") // ISSUER, HOLDER, ADMIN, VERIFIER
+  classicalPublicKey String   // Ed25519 public key (hex encoded)
+  pqPublicKey        String   // ML-DSA-65 public key (hex encoded, ~1952 bytes)
+  slhPublicKey       String?  // Optional SLH-DSA-SHA2-128s public key (hex encoded)
+  didDocument        String   // JSON string of W3C compliant DID document containing verification methods
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([did])
+  @@index([role])
+}
+
+// ---------------------------------------------------------------------------
+// 2. Verifiable Credentials
+// ---------------------------------------------------------------------------
+model Credential {
+  id                 String   @id @default(cuid())
+  type               String   // Credential schema/type e.g. "SecurityClearance", "EmployeeID"
+  issuerId           String   // Reference to issuer Identity.id or DID
+  holderId           String   // Reference to holder Identity.id or DID
+  claims             String   // JSON string of Subject claims and attributes
+  classicalSignature String   // Ed25519 signature over claims payload (hex)
+  pqSignature        String   // ML-DSA-65 signature over claims payload (hex, ~3309 bytes)
+  issuerClassicalPK  String   // Copy of issuer classical public key for verification
+  issuerPqPK         String   // Copy of issuer PQ public key for verification
+  isRevoked          Boolean  @default(false)
+  issuedAt           DateTime @default(now())
+
+  @@index([holderId])
+  @@index([issuerId])
+}
+
+// ---------------------------------------------------------------------------
+// 3. Digital Asset Registry
+// ---------------------------------------------------------------------------
+model Asset {
+  id             String   @id @default(cuid())
+  name           String
+  description    String
+  contentHash    String   // Deterministic SHA-256 hash of the asset content
+  ownerId        String   // Current owner Identity.id or DID
+  classification String   // STANDARD (Ed25519+ML-DSA) or LONG_LIFE (+SLH-DSA)
+  status         String   @default("ACTIVE") // ACTIVE, FROZEN, BURNED
+  metadata       String   @default("{}") // JSON string
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([ownerId])
+  @@index([status])
+  @@index([classification])
+}
+
+// ---------------------------------------------------------------------------
+// 4. Hash-Chained Append-Only Ledger
+// ---------------------------------------------------------------------------
+model LedgerEntry {
+  id                 String   @id @default(cuid())
+  index              Int      @unique // Monotonically increasing sequential index
+  timestamp          DateTime @default(now())
+  actionType         String   // DID_REGISTERED, VC_ISSUED, ASSET_MINTED, etc.
+  payload            String   // JSON string of Structured action payload
+  classicalSignature String   // Actor Ed25519 signature
+  pqSignature        String   // Actor ML-DSA-65 signature
+  slhSignature       String?  // Optional SLH-DSA-SHA2-128s signature (~7856 bytes)
+  actorClassicalPK   String   // Signer Ed25519 public key
+  actorPqPK          String   // Signer ML-DSA-65 public key
+  previousHash       String   // Hash pointer to index-1 entry (0x00... for genesis)
+  hash               String   @unique // SHA-256(index + timestamp + actionType + payload + sigs + prevHash)
+
+  @@index([index])
+  @@index([actionType])
+  @@index([timestamp])
+}
+
+// ---------------------------------------------------------------------------
+// 5. Multi-Party Approval Queue
+// ---------------------------------------------------------------------------
+model PendingApproval {
+  id                    String    @id @default(cuid())
+  actionType            String    // ASSET_TRANSFERRED, ASSET_BURNED, ASSET_FROZEN, etc.
+  payload               String    // JSON string of Proposed ledger entry payload
+  requesterId           String    // Initial initiator Identity.id or DID
+  requesterClassicalSig String    // Requester Ed25519 signature
+  requesterPqSig        String    // Requester ML-DSA-65 signature
+  requesterSlhSig       String?   // Requester SLH-DSA signature if applicable
+  approverId            String?   // Second authorizing party Identity.id or DID
+  approverClassicalSig  String?   // Approver Ed25519 signature
+  approverPqSig         String?   // Approver ML-DSA-65 signature
+  approverSlhSig        String?   // Approver SLH-DSA signature if applicable
+  status                String    @default("PENDING") // PENDING, APPROVED, REJECTED
+  createdAt             DateTime  @default(now())
+  resolvedAt            DateTime?
+
+  @@index([status])
+  @@index([requesterId])
+}
+
+// ---------------------------------------------------------------------------
+// 6. Access Control Logs
+// ---------------------------------------------------------------------------
+model AccessLog {
+  id           String   @id @default(cuid())
+  identityId   String   // Requesting subject
+  resourceId   String   // Target asset or endpoint
+  resourceType String   // Type of resource (e.g. "ASSET", "CLEARANCE_AREA")
+  action       String   // ACCESS_GRANTED or ACCESS_DENIED
+  policyId     String?  // Evaluated Policy.id
+  reason       String?  // Decision explanation or failure reason
+  credentialId String?  // VC presented for access
+  timestamp    DateTime @default(now())
+
+  @@index([identityId])
+  @@index([timestamp])
+  @@index([action])
+}
+
+// ---------------------------------------------------------------------------
+// 7. Policy Engine Definitions
+// ---------------------------------------------------------------------------
+model Policy {
+  id           String   @id @default(cuid())
+  name         String
+  description  String
+  resourceType String
+  rules        String   // JSON string of Declarative OPA-style rule set
+  version      Int      @default(1)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  @@index([resourceType])
+  @@index([isActive])
+}
+
+// ---------------------------------------------------------------------------
+// 8. Anomaly Detection Records
+// ---------------------------------------------------------------------------
+model Anomaly {
+  id          String    @id @default(cuid())
+  type        String    // Category of detected anomaly
+  identityId  String?   // Flagged identity if applicable
+  description String    // Human-readable description
+  severity    String    @default("MEDIUM") // LOW, MEDIUM, HIGH, CRITICAL
+  metadata    String    @default("{}") // JSON string Event details, trigger threshold, IPs, etc.
+  isResolved  Boolean   @default(false)
+  detectedAt  DateTime  @default(now())
+  resolvedAt  DateTime?
+
+  @@index([severity])
+  @@index([isResolved])
+  @@index([identityId])
+}
+
+// ---------------------------------------------------------------------------
+// 9. Post-Quantum Key Encapsulation (ML-KEM-768) Sessions
+// ---------------------------------------------------------------------------
+model KemSession {
+  id              String   @id @default(cuid())
+  serverPublicKey String   // Server's ML-KEM-768 ephemeral public key
+  cipherText      String?  // Client's encapsulated ciphertext (1088 bytes hex)
+  status          String   @default("PENDING") // PENDING, ESTABLISHED, EXPIRED
+  expiresAt       DateTime
+  createdAt       DateTime @default(now())
+
+  @@index([expiresAt])
+}

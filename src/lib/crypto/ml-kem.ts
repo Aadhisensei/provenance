@@ -23,7 +23,7 @@
  * 
  * @module
  */
-import { ml_kem768 } from '@noble/post-quantum/ml-kem';
+import { ml_kem768 } from '@noble/post-quantum/ml-kem.js';
 import type { KeyExchangeScheme } from './interface';
 
 /**
@@ -63,7 +63,7 @@ export async function deriveAesKeyFromSharedSecret(
   // Import the shared secret as raw key material
   const keyMaterial = await crypto.subtle.importKey(
     'raw',
-    sharedSecret,
+    sharedSecret as unknown as ArrayBuffer,
     { name: 'HKDF' },
     false,
     ['deriveKey']
@@ -98,7 +98,7 @@ export async function encryptWithAesGcm(
   const encrypted = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv },
     aesKey,
-    data
+    data as unknown as ArrayBuffer
   );
   // Prepend IV to ciphertext: [12-byte IV][ciphertext]
   const result = new Uint8Array(iv.length + encrypted.byteLength);

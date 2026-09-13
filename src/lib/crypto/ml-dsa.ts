@@ -14,7 +14,7 @@
  * 
  * @module
  */
-import { ml_dsa65 } from '@noble/post-quantum/ml-dsa';
+import { ml_dsa65 } from '@noble/post-quantum/ml-dsa.js';
 import type { SignatureScheme } from './interface';
 
 /**

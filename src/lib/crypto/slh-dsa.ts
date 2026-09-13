@@ -19,7 +19,7 @@
  * 
  * @module
  */
-import { slh_dsa_sha2_128s } from '@noble/post-quantum/slh-dsa';
+import { slh_dsa_sha2_128s } from '@noble/post-quantum/slh-dsa.js';
 import type { SignatureScheme } from './interface';
 
 /**
